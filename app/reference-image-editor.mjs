@@ -121,7 +121,16 @@ function detectSurfaceTextRegions(raw, width, height, greenBand) {
   };
   const brandInk = findInkBounds(raw, width, height, bandTextArea, lightInk);
   const brand = brandInk
-    ? { x0: brandInk.x0 - 2, y0: brandInk.y0 - 3, x1: brandInk.x1 + 2, y1: brandInk.y1 + 3, lineCount: 1 }
+    ? {
+        // Preserve the reference label's left/right padding. The replacement
+        // can be longer than the old brand, but it stays inside the same
+        // padded surface instead of changing the visual spacing.
+        x0: brandInk.x0 - 2,
+        y0: brandInk.y0 - 3,
+        x1: greenBand.x1 - Math.max(6, greenBand.x1 - brandInk.x1),
+        y1: brandInk.y1 + 3,
+        lineCount: 1,
+      }
     : { x0: bandTextArea.x0, y0: bandTextArea.y0, x1: bandTextArea.x1, y1: bandTextArea.y1, lineCount: 1 };
 
   return { product, brand };
