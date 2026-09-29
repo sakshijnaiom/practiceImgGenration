@@ -1,0 +1,13 @@
+{
+  "name": "pharmaceutical-image-generator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env app/server.mjs"
+  },
+  "dependencies": {
+    "mongodb": "^6.17.0",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0"
+  }
+}
