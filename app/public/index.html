@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pharmaceutical Product Image Generator</title>
+    <style>
+      :root { font-family: Inter, system-ui, sans-serif; color: #162033; background: #f5f7fb; }
+      body { margin: 0; }
+      main { max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+      .card { background: white; border: 1px solid #e3e7ef; border-radius: 16px; padding: 28px; box-shadow: 0 8px 30px #15234d0c; }
+      h1 { margin-top: 0; font-size: 28px; }
+      form { display: grid; gap: 16px; }
+      label { display: grid; gap: 7px; font-weight: 650; }
+      input, select, button { font: inherit; }
+      input, select { border: 1px solid #cbd3e1; border-radius: 8px; padding: 11px 12px; }
+      button { border: 0; border-radius: 8px; padding: 12px 18px; background: #2659d8; color: white; cursor: pointer; font-weight: 700; }
+      button.secondary { background: #45536d; }
+      .preview { display: none; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
+      .preview.visible { display: grid; }
+      .preview figure { margin: 0; border: 1px solid #e3e7ef; border-radius: 12px; padding: 12px; background: #fafbfe; }
+      figure img { width: 100%; height: 320px; object-fit: contain; background: #eef1f7; border-radius: 8px; }
+      figcaption { margin-top: 9px; font-weight: 700; }
+      #status { min-height: 22px; margin-top: 16px; color: #52627e; }
+      .actions { display: flex; gap: 10px; margin-top: 18px; }
+      @media (max-width: 700px) { .preview { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Pharmaceutical Product Image Generator</h1>
+        <form id="product-form">
+          <input type="hidden" name="productType" value="BOX" />
+          <label>Product Name<input name="productName" required /></label>
+          <label>Brand Name<input name="brandName" required /></label>
+          <label>Reference Product Image<input name="referenceImage" type="file" accept="image/*" required /></label>
+          <button type="submit">Generate Image</button>
+        </form>
+        <div id="status"></div>
+        <section id="preview" class="preview">
+          <figure><img id="original" alt="Original reference image" /><figcaption>Original Reference Image</figcaption></figure>
+          <figure><img id="generated" alt="Generated product image" /><figcaption>Generated Product Image</figcaption></figure>
+        </section>
+        <div id="actions" class="actions" hidden>
+          <button class="secondary" id="again" type="button">Generate Again</button>
+          <a id="download" download="generated-product.png"><button type="button">Download</button></a>
+        </div>
+      </section>
+    </main>
+    <script>
+      const form = document.querySelector('#product-form');
+      const status = document.querySelector('#status');
+      const preview = document.querySelector('#preview');
+      const actions = document.querySelector('#actions');
+      let lastPayload;
+      const readFile = file => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const loadImage = source => new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = source;
+      });
+      function wrapText(context, text, maxWidth) {
+        const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+        const lines = [];
+        let line = '';
+        for (const word of words) {
+          const candidate = line ? `${line} ${word}` : word;
+          if (line && context.measureText(candidate).width > maxWidth) {
+            lines.push(line);
+            line = word;
+          } else line = candidate;
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+      function detectExistingBoxBranding(context, canvas) {
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let greenPixels = 0;
+        const step = Math.max(1, Math.floor(canvas.width / 240));
+        for (let y = Math.floor(canvas.height * 0.25); y < canvas.height * 0.75; y += step) {
+          for (let x = Math.floor(canvas.width * 0.05); x < canvas.width * 0.70; x += step) {
+            const i = (y * canvas.width + x) * 4;
+            const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+            if (g > r * 1.35 && g > b * 1.15 && g > 55) greenPixels++;
+          }
+        }
+        return greenPixels > 20;
+      }
+      function clearOnlyBrandText(context, canvas, region) {
+        const x0 = Math.floor(canvas.width * region.x0);
+        const x1 = Math.floor(canvas.width * region.x1);
+        const y0 = Math.floor(canvas.height * region.y0);
+        const y1 = Math.floor(canvas.height * region.y1);
+        const image = context.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = image.data;
+        for (let y = y0; y < y1; y++) {
+          const leftIndex = (y * canvas.width + Math.max(0, x0 - 2)) * 4;
+          const rightIndex = (y * canvas.width + Math.min(canvas.width - 1, x1 + 2)) * 4;
+          const left = [pixels[leftIndex], pixels[leftIndex + 1], pixels[leftIndex + 2]];
+          const right = [pixels[rightIndex], pixels[rightIndex + 1], pixels[rightIndex + 2]];
+          for (let x = x0; x < x1; x++) {
+            const ratio = (x - x0) / Math.max(1, x1 - x0 - 1);
+            const index = (y * canvas.width + x) * 4;
+            pixels[index] = left[0] + (right[0] - left[0]) * ratio;
+            pixels[index + 1] = left[1] + (right[1] - left[1]) * ratio;
+            pixels[index + 2] = left[2] + (right[2] - left[2]) * ratio;
+            pixels[index + 3] = 255;
+          }
+        }
+        context.putImageData(image, 0, 0);
+      }
+      function clearOnlyProductName(context, canvas, region) {
+        const x0 = Math.floor(canvas.width * region.x0);
+        const x1 = Math.floor(canvas.width * region.x1);
+        const y0 = Math.floor(canvas.height * region.y0);
+        const y1 = Math.floor(canvas.height * region.y1);
+        const image = context.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = image.data;
+        const upperY = Math.max(0, y0 - 4);
+        const lowerY = Math.min(canvas.height - 1, y1 + 4);
+        for (let y = y0; y < y1; y++) {
+          const verticalRatio = (y - y0) / Math.max(1, y1 - y0 - 1);
+          for (let x = x0; x < x1; x++) {
+            const upper = (upperY * canvas.width + x) * 4;
+            const lower = (lowerY * canvas.width + x) * 4;
+            const index = (y * canvas.width + x) * 4;
+            pixels[index] = pixels[upper] + (pixels[lower] - pixels[upper]) * verticalRatio;
+            pixels[index + 1] = pixels[upper + 1] + (pixels[lower + 1] - pixels[upper + 1]) * verticalRatio;
+            pixels[index + 2] = pixels[upper + 2] + (pixels[lower + 2] - pixels[upper + 2]) * verticalRatio;
+            pixels[index + 3] = 255;
+          }
+        }
+        context.putImageData(image, 0, 0);
+      }
+      function detectBottleReference(context, canvas) {
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let minX = canvas.width, maxX = 0, greenPixels = 0;
+        const step = Math.max(1, Math.floor(canvas.width / 300));
+        for (let y = Math.floor(canvas.height * 0.25); y < canvas.height * 0.75; y += step) {
+          for (let x = 0; x < canvas.width; x += step) {
+            const i = (y * canvas.width + x) * 4;
+            const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+            if (g > r * 1.35 && g > b * 1.15 && g > 55) {
+              greenPixels++;
+              minX = Math.min(minX, x);
+              maxX = Math.max(maxX, x);
+            }
+          }
+        }
+        const greenSpan = maxX > minX ? maxX - minX : 0;
+        return greenPixels > 10 && greenSpan < canvas.width * 0.38;
+      }
+      async function createLocalPreview(payload) {
+        const reference = await loadImage(payload.referenceImage);
+        const canvas = document.createElement('canvas');
+        const scale = 1;
+        canvas.width = Math.max(1, Math.round(reference.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(reference.naturalHeight * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(reference, 0, 0, canvas.width, canvas.height);
+
+        const productType = payload.productType;
+        const bottleReference = detectBottleReference(context, canvas);
+        const referenceProfile = bottleReference ? {
+          width: 0.30, height: 0.34, x: 0.35, y: 0.39,
+          title: { x0: 0.36, x1: 0.63, y0: 0.39, y1: 0.50 },
+          brand: { x0: 0.36, x1: 0.63, y0: 0.52, y1: 0.59 }
+        } : {
+          width: 0.58, height: 0.44, x: 0.075, y: 0.29,
+          title: { x0: 0.11, x1: 0.61, y0: 0.28, y1: 0.45 },
+          brand: { x0: 0.13, x1: 0.46, y0: 0.49, y1: 0.57 }
+        };
+        const surfaceProfiles = {
+          BOX: referenceProfile,
+          TABLET: referenceProfile,
+          CAPSULE: referenceProfile,
+          DROPS: { width: 0.38, height: 0.36, x: 0.31, y: 0.32 },
+          BOTTLE: { width: 0.52, height: 0.46, x: 0.24, y: 0.25 },
+          SYRUP: { width: 0.52, height: 0.46, x: 0.24, y: 0.25 },
+          TUBE: { width: 0.56, height: 0.42, x: 0.22, y: 0.29 },
+          CREAM: { width: 0.56, height: 0.42, x: 0.22, y: 0.29 },
+          GEL: { width: 0.56, height: 0.42, x: 0.22, y: 0.29 }
+        };
+        const profile = surfaceProfiles[productType] || surfaceProfiles.BOX;
+        const surfaceWidth = canvas.width * profile.width;
+        const surfaceHeight = canvas.height * profile.height;
+        const surfaceX = canvas.width * profile.x;
+        const surfaceY = canvas.height * profile.y;
+        const existingBoxBranding = (productType === 'BOX' || bottleReference) && detectExistingBoxBranding(context, canvas);
+
+        if (existingBoxBranding) {
+          // Internal selective-replacement mask for branded BOX references:
+          // clear only the old title and brand-name region. The original logo,
+          // pack size, manufacturer, stripe, shadows, and product structure remain.
+          clearOnlyProductName(context, canvas, referenceProfile.title);
+          if (bottleReference) {
+            const band = context.createLinearGradient(
+              canvas.width * referenceProfile.brand.x0,
+              0,
+              canvas.width * referenceProfile.brand.x1,
+              0,
+            );
+            band.addColorStop(0, '#006c50');
+            band.addColorStop(0.72, '#429b35');
+            band.addColorStop(1, '#7ab83b');
+            context.fillStyle = band;
+            context.fillRect(
+              canvas.width * referenceProfile.brand.x0,
+              canvas.height * referenceProfile.brand.y0,
+              canvas.width * (referenceProfile.brand.x1 - referenceProfile.brand.x0),
+              canvas.height * (referenceProfile.brand.y1 - referenceProfile.brand.y0),
+            );
+          } else {
+            clearOnlyBrandText(context, canvas, referenceProfile.brand);
+          }
+        }
+        // The reference product image remains visible. Dynamic content is
+        // rendered directly onto the detected/template surface without a
+        // colored rectangle or replacement background.
+
+        const pad = surfaceWidth * 0.08;
+        const centerX = canvas.width / 2;
+        const maxWidth = surfaceWidth - pad * 2;
+        const leftAligned = ['BOX', 'TABLET', 'CAPSULE'].includes(productType);
+        const contentX = leftAligned ? surfaceX + pad : centerX;
+
+        const drawText = (value, size, yFactor, weight = '600', color = '#102033', maxLines = 2) => {
+          if (!value) return;
+          context.font = `${weight} ${size}px Arial, sans-serif`;
+          context.fillStyle = color;
+          context.textAlign = leftAligned ? 'left' : 'center';
+          const lines = wrapText(context, value, maxWidth);
+          const lineHeight = size * 1.12;
+          const visibleLines = lines.slice(0, maxLines);
+          let textY = surfaceY + surfaceHeight * yFactor;
+          for (const line of visibleLines) {
+            context.fillText(line, contentX, textY);
+            textY += lineHeight;
+          }
+        };
+        if (existingBoxBranding) {
+          if (bottleReference) {
+            context.font = `700 ${Math.max(15, canvas.width * 0.027)}px Arial, sans-serif`;
+            context.fillStyle = '#17344a';
+            context.textAlign = 'left';
+            const bottleLines = wrapText(context, payload.productName, canvas.width * 0.29).slice(0, 2);
+            bottleLines.forEach((line, index) => context.fillText(line, canvas.width * 0.375, canvas.height * (0.425 + index * 0.038)));
+          } else {
+            drawText(payload.productName, Math.max(20, surfaceWidth * 0.060), 0.34, '700', '#17344a', 2);
+          }
+          context.font = `700 ${bottleReference ? Math.max(11, canvas.width * 0.018) : Math.max(20, surfaceWidth * 0.052)}px Arial, sans-serif`;
+          context.fillStyle = '#ffffff';
+          context.textAlign = bottleReference ? 'center' : 'left';
+          context.fillText(payload.brandName, bottleReference ? canvas.width * 0.50 : canvas.width * 0.14, canvas.height * 0.545);
+        } else {
+          drawText(payload.productName, Math.max(20, surfaceWidth * 0.065), 0.29, '700', '#102033', 2);
+          drawText(payload.brandName, Math.max(15, surfaceWidth * 0.040), 0.58, '700', '#17344a', 1);
+        }
+        return canvas.toDataURL('image/png');
+      }
+      async function generate(payload) {
+        status.textContent = 'Generating…';
+        const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.errors?.map(error => error.message).join(', ') || result.message);
+        const generatedPreview = result.generatedImage;
+        document.querySelector('#original').src = result.originalImage;
+        document.querySelector('#generated').src = generatedPreview;
+        preview.classList.add('visible');
+        actions.hidden = false;
+        document.querySelector('#download').href = generatedPreview;
+        status.textContent = result.message;
+      }
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        try {
+          const data = new FormData(form);
+          lastPayload = Object.fromEntries(data.entries());
+          lastPayload.referenceImage = await readFile(data.get('referenceImage'));
+          await generate(lastPayload);
+        } catch (error) { status.textContent = error.message; }
+      });
+      document.querySelector('#again').addEventListener('click', () => lastPayload && generate(lastPayload).catch(error => status.textContent = error.message));
+    </script>
+  </body>
+</html>

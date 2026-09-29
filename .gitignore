@@ -1,0 +1,9 @@
+node_modules/
+.env
+uploads/
+
+# Local reference screenshots/generated test assets
+*.png
+*.jpg
+*.jpeg
+*.traineddata
