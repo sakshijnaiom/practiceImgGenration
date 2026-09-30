@@ -311,11 +311,16 @@ export async function replaceProductAndBrandText(referenceDataUrl, productName, 
   if (surfaceRegions) {
     const originalPixels = Buffer.from(raw);
     const productColor = sampleTextColor(originalPixels, info.width, info.height, surfaceRegions.product);
+    const productText = String(productName);
+    const productLineCount = Math.min(
+      4,
+      Math.max(surfaceRegions.product.lineCount, Math.ceil(productText.length / 40)),
+    );
     reconstructRegion(raw, info.width, info.height, surfaceRegions.product, false);
     reconstructRegion(raw, info.width, info.height, surfaceRegions.brand, true);
     const cleaned = await sharp(raw, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
     const composed = await sharp(cleaned).composite([
-      { input: textOverlay(productName, surfaceRegions.product, productColor, info.width, surfaceRegions.product.lineCount), top: 0, left: 0 },
+      { input: textOverlay(productText, { ...surfaceRegions.product, lineCount: productLineCount }, productColor, info.width, productLineCount), top: 0, left: 0 },
       { input: textOverlay(brandName, surfaceRegions.brand, "#ffffff", info.width, 1), top: 0, left: 0 },
     ]).png().toBuffer();
     return `data:image/png;base64,${composed.toString("base64")}`;
