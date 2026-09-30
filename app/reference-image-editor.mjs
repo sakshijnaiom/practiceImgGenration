@@ -235,7 +235,15 @@ function textOverlay(text, box, color, width, lineCount = 1) {
   // Start at the reference text scale. Wrapping is preferred; shrinking the
   // entire replacement to one line makes bottle labels look visibly wrong.
   let fontSize = Math.max(10, originalLineHeight * 0.95);
-  const safeText = String(text).replace(/[&<>"']/g, "");
+  // Escape XML characters without deleting valid product names such as
+  // "Amlodipine & Atenolol".
+  const safeText = String(text).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&apos;",
+  })[character]);
   const words = safeText.split(/\s+/).filter(Boolean);
   const wrap = (size) => {
     const wrapped = [];
