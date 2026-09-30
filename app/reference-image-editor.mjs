@@ -265,10 +265,13 @@ function textOverlay(text, box, color, width, lineCount = 1) {
     fontSize -= 0.5;
     lines = wrap(fontSize);
   }
+  const renderedHeight = Math.max(1, lines.length * fontSize * 1.08);
+  const verticalOffset = Math.max(0, ((box.y1 - box.y0) - renderedHeight) / 2);
+  const textY = box.y0 + verticalOffset + fontSize;
   const tspans = lines.slice(0, lineCount).map((value, index) =>
     `<tspan x="${box.x0}" dy="${index === 0 ? 0 : fontSize * 1.08}">${value}</tspan>`,
   ).join("");
-  return Buffer.from(`<svg width="${width}" height="${Math.max(1, box.y1 + fontSize * 2)}" xmlns="http://www.w3.org/2000/svg"><text x="${box.x0}" y="${box.y0 + fontSize}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="${color}">${tspans}</text></svg>`);
+  return Buffer.from(`<svg width="${width}" height="${Math.max(1, box.y1 + fontSize * 2)}" xmlns="http://www.w3.org/2000/svg"><text x="${box.x0}" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="${color}">${tspans}</text></svg>`);
 }
 
 export async function replaceProductAndBrandText(referenceDataUrl, productName, brandName) {
